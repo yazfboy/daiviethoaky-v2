@@ -48,11 +48,17 @@ const MESSAGES: Record<ChatErrorCode, string> = {
   TIMEOUT: "Dịch vụ AI phản hồi quá chậm. Hãy gửi lại.",
   UPSTREAM_UNREACHABLE: "Máy chủ không kết nối được tới dịch vụ AI. Hãy kiểm tra mạng rồi gửi lại.",
   UPSTREAM_ERROR: "Dịch vụ AI đang gặp trục trặc. Hãy gửi lại sau giây lát.",
-  EMPTY: "Tướng quân chưa đáp được câu này. Hãy gửi lại hoặc hỏi theo cách khác.",
-  INTERRUPTED: "Kết nối bị ngắt khi tướng quân đang trả lời. Hãy gửi lại.",
+  // {speaker}: danh xưng nhân vật đang trò chuyện (vd "Hoàng đế Quang Trung"); không có thì dùng "Nhân vật".
+  EMPTY: "{speaker} chưa đáp được câu này. Hãy gửi lại hoặc hỏi theo cách khác.",
+  INTERRUPTED: "Kết nối bị ngắt khi {speaker} đang trả lời. Hãy gửi lại.",
   NETWORK: "Không kết nối được tới máy chủ. Hãy kiểm tra mạng rồi gửi lại.",
 };
 
-export function errorMessage(code: string): string {
-  return MESSAGES[code as ChatErrorCode] ?? MESSAGES.UPSTREAM_ERROR;
+/** Thông báo lỗi tiếng Việt. `speaker`: danh xưng nhân vật đang mở, để không gọi nhầm người. */
+export function errorMessage(code: string, speaker?: string): string {
+  const template = MESSAGES[code as ChatErrorCode] ?? MESSAGES.UPSTREAM_ERROR;
+  const name = speaker?.trim();
+  return template
+    .replace(/^\{speaker\}/, name || "Nhân vật")
+    .replace(/\{speaker\}/g, name || "nhân vật");
 }

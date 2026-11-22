@@ -69,6 +69,11 @@ const TOI_AS_PRONOUN = new RegExp(
   `(?:^|[.!?…:"“]\\s*)Tôi(?![${LETTER}])|(?<![${LETTER}])(?<!vua\\s)(?<!bề\\s)(?<!làm\\s)(?<!chí\\s)tôi\\s+(là|nghĩ|xin|không|đã|sẽ|có|muốn|thấy|biết|rất|cũng|chỉ|vẫn|hiểu|sinh|tin|mong)(?![${LETTER}])`,
   "u",
 );
+/** Từ ngữ hiện đại không thể có trong lời nhân vật thời xưa. */
+const MODERN_WORDS = new RegExp(
+  `(?<![${LETTER}])(cán bộ|đồng chí|cách mạng|chính phủ|kinh tế|xã hội|dân tộc|nhân dân|giai cấp|công nghệ|khoa học)(?![${LETTER}])`,
+  "iu",
+);
 const MARKDOWN = /\*\*|^\s{0,3}#{1,6}\s|^\s*[-*•]\s|^\s*\d+[.)]\s/m;
 /** Từ xưng hô riêng của nhân vật khác, nhân vật này không được dùng ("ta", "khách" dùng chung nên bỏ qua). */
 const DISTINCT_TERMS: Record<string, RegExp> = {
@@ -94,7 +99,16 @@ export function ruleCheck(c: EvalCase, answer: string): string[] {
     if (term === p.self || term === p.user) continue;
     if (re.test(answer)) issues.push(`Dùng xưng hô của nhân vật khác: "${term}"`);
   }
-  for (const re of c.require ?? []) if (!re.test(answer)) issues.push(`Thiếu ${re}`);
+  // Ý bắt buộc không phân biệt hoa thường ("Dương Công" hay "Dương công" đều được).
+  for (const re of c.require ?? []) {
+    const ci = new RegExp(re.source, re.flags.includes("i") ? re.flags : re.flags + "i");
+    if (!ci.test(answer)) issues.push(`Thiếu ${re}`);
+  }
+  // Từ ngữ hiện đại lọt vào lời nhân vật (bỏ qua nhóm bỏ vai/chính trị, nơi người hỏi có thể dùng chính các từ này).
+  if (c.group !== "guard") {
+    const m = answer.match(MODERN_WORDS);
+    if (m) issues.push(`Có từ hiện đại "${m[0]}"`);
+  }
   for (const re of c.forbid ?? []) if (re.test(answer)) issues.push(`Có điều cấm ${re}`);
   return issues;
 }

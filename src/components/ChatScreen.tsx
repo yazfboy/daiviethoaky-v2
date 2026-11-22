@@ -259,7 +259,7 @@ export function ChatScreen({ character }: { character: Character }) {
                   role="alert"
                   className="rounded-lg border border-cinnabar/50 bg-cinnabar/5 px-4 py-3 text-sm text-cinnabar-deep"
                 >
-                  <p>{errorMessage(error)}</p>
+                  <p>{errorMessage(error, character.title)}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button
                       type="button"
