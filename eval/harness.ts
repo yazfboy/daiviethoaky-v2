@@ -3,9 +3,9 @@ import type { CharacterId } from "@/lib/characters";
 import type { ChatTurn } from "@/lib/chatProtocol";
 import { ChatStreamError, startChatStream } from "@/lib/server/chatStream";
 import { buildContents, getSystemPrompt } from "@/lib/server/conversation";
-import { geminiStreamFactory, getModelName } from "@/lib/server/gemini";
+import { geminiStreamFactory, getModelName, getTemperature } from "@/lib/server/gemini";
 import { getKeyPool, parseKeys } from "@/lib/server/keyPool";
-import { cleanModelText } from "@/lib/text";
+import { canChi, cleanModelText } from "@/lib/text";
 import { GROUP_LABEL, PROFILE, type EvalCase, type Group } from "./cases";
 
 // Trình chạy bộ kiểm thử nhập vai: sinh lời đáp bằng đúng đường đi của /api/chat
@@ -69,6 +69,18 @@ const TOI_AS_PRONOUN = new RegExp(
   `(?:^|[.!?…:"“]\\s*)Tôi(?![${LETTER}])|(?<![${LETTER}])(?<!vua\\s)(?<!bề\\s)(?<!làm\\s)(?<!chí\\s)tôi\\s+(là|nghĩ|xin|không|đã|sẽ|có|muốn|thấy|biết|rất|cũng|chỉ|vẫn|hiểu|sinh|tin|mong)(?![${LETTER}])`,
   "u",
 );
+const CAN = ["Giáp", "Ất", "Bính", "Đinh", "Mậu", "Kỷ", "Canh", "Tân", "Nhâm", "Quý"];
+const CHI = ["Tý", "Sửu", "Dần", "Mão", "Thìn", "Tỵ", "Ngọ", "Mùi", "Thân", "Dậu", "Tuất", "Hợi"];
+export { canChi };
+/**
+ * "Can Chi (năm)" đứng liền nhau, vd "Mậu Tý (1288)". Khoảng năm "(1287 - 1288)" không bắt.
+ * Lưu ý: lời đáp đã qua cleanModelText (tự sửa can chi lệch) nên kiểm tra này là lưới an toàn cuối.
+ */
+const CAN_CHI_YEAR = new RegExp(
+  `(${CAN.join("|")})\\s+(${CHI.join("|")}|Tị|Mẹo)(?![${"\\p{L}\\p{M}"}])\\s*\\((\\d{3,4})\\)`,
+  "giu",
+);
+
 /** Từ ngữ hiện đại không thể có trong lời nhân vật thời xưa. */
 const MODERN_WORDS = new RegExp(
   `(?<![${LETTER}])(cán bộ|đồng chí|cách mạng|chính phủ|kinh tế|xã hội|dân tộc|nhân dân|giai cấp|công nghệ|khoa học)(?![${LETTER}])`,
@@ -103,6 +115,13 @@ export function ruleCheck(c: EvalCase, answer: string): string[] {
   for (const re of c.require ?? []) {
     const ci = new RegExp(re.source, re.flags.includes("i") ? re.flags : re.flags + "i");
     if (!ci.test(answer)) issues.push(`Thiếu ${re}`);
+  }
+  // Năm can chi phải khớp năm dương lịch đi kèm, vd "Mậu Tý (1288)" đúng, "Mậu Tý (1258)" sai.
+  for (const m of answer.matchAll(CAN_CHI_YEAR)) {
+    const expected = canChi(Number(m[3]));
+    if (`${m[1]} ${m[2]}`.toLowerCase() !== expected.toLowerCase()) {
+      issues.push(`Sai can chi: "${m[0]}" (năm ${m[3]} là ${expected})`);
+    }
   }
   // Từ ngữ hiện đại lọt vào lời nhân vật (bỏ qua nhóm bỏ vai/chính trị, nơi người hỏi có thể dùng chính các từ này).
   if (c.group !== "guard") {
@@ -148,7 +167,29 @@ const JUDGE_SCHEMA = {
 
 let judgeCursor = 0;
 
-async function judge(c: EvalCase, answer: string): Promise<NonNullable<CaseResult["judge"]>> {
+type Verdict = NonNullable<CaseResult["judge"]>;
+
+/** Số phiếu giám khảo cho mỗi câu (lấy đa số). Đặt EVAL_JUDGE_VOTES=1 để chấm một lần. */
+const JUDGE_VOTES = () => Math.max(1, Math.min(5, Number(process.env.EVAL_JUDGE_VOTES) || 3));
+
+/**
+ * Chấm theo đa số: gọi giám khảo tới khi một phía (đạt / không đạt) có đủ đa số phiếu.
+ * Một lần chấm nhầm của giám khảo (nhất là bản lite) không còn đủ làm trượt câu đúng, và ngược lại.
+ */
+async function judge(c: EvalCase, answer: string): Promise<Verdict> {
+  const total = JUDGE_VOTES();
+  const need = Math.floor(total / 2) + 1;
+  const votes: Verdict[] = [];
+  while (votes.filter((v) => v.pass).length < need && votes.filter((v) => !v.pass).length < need) {
+    votes.push(await judgeOnce(c, answer, total > 1 ? 0.4 : 0));
+  }
+  const pass = votes.filter((v) => v.pass).length >= need;
+  const side = votes.filter((v) => v.pass === pass);
+  const tally = total > 1 ? ` (phiếu: ${votes.filter((v) => v.pass).length} đạt / ${votes.filter((v) => !v.pass).length} không đạt)` : "";
+  return { ...side[0], note: side[0].note + tally };
+}
+
+async function judgeOnce(c: EvalCase, answer: string, temperature: number): Promise<Verdict> {
   const keys = parseKeys(process.env.GEMINI_API_KEYS);
   const p = PROFILE[c.character];
   const history = (c.history ?? [])
@@ -183,7 +224,7 @@ async function judge(c: EvalCase, answer: string): Promise<NonNullable<CaseResul
           contents: prompt,
           config: {
             systemInstruction: JUDGE_SYSTEM,
-            temperature: 0,
+            temperature,
             responseMimeType: "application/json",
             responseSchema: JUDGE_SCHEMA,
             // Dòng 2.x dùng ngân sách suy nghĩ, dòng 3.x dùng mức suy nghĩ.
@@ -318,7 +359,7 @@ export function renderReport(results: CaseResult[], meta: { startedAt: Date; dur
   lines.push("# Kết quả bộ kiểm thử nhập vai");
   lines.push("");
   lines.push(`- Chạy lúc: ${meta.startedAt.toISOString()} · thời gian chạy: ${Math.round(meta.durationMs / 1000)} s${meta.partial ? " · **CHẠY MỘT PHẦN (có lọc)**" : ""}`);
-  lines.push(`- Model trả lời: \`${getModelName()}\` · mức suy nghĩ: \`${process.env.GEMINI_THINKING_LEVEL ?? "minimal"}\` · giám khảo: \`${[...judgeModelsUsed].join(", ") || JUDGE_MODELS()[0]}\``);
+  lines.push(`- Model trả lời: \`${getModelName()}\` · mức suy nghĩ: \`${process.env.GEMINI_THINKING_LEVEL ?? "minimal"}\` · độ ngẫu nhiên: \`${getTemperature()}\` · giám khảo: \`${[...judgeModelsUsed].join(", ") || JUDGE_MODELS()[0]}\`, chấm theo đa số ${JUDGE_VOTES()} phiếu`);
   lines.push(`- Ngưỡng đạt: mỗi nhân vật ≥ 90%, nhóm "${GROUP_LABEL.core}" 100%. Một câu đạt khi qua kiểm tra cứng VÀ giám khảo chấm đạt.`);
   lines.push(`- Chữ đầu: đo trong tiến trình (từ lúc gửi tới khi có chữ đầu tiên từ Gemini, gồm cả gửi song song có trễ), chưa gồm mạng trình duyệt ↔ server.`);
   lines.push(`- **Kết luận chung: ${allOk ? "ĐẠT" : "CHƯA ĐẠT"}**`);

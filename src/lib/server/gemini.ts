@@ -10,6 +10,17 @@ export function getModelName(): string {
 }
 
 /**
+ * Độ ngẫu nhiên khi nhân vật trả lời. Phase 2 hạ từ 0.8 xuống 0.5 để bám sát sự kiện trong hồ sơ
+ * (ít lệch năm, lệch người, lệch xưng hô) mà giọng văn vẫn tự nhiên. Đổi bằng GEMINI_TEMPERATURE (0–2).
+ */
+export const DEFAULT_TEMPERATURE = 0.5;
+
+export function getTemperature(): number {
+  const v = Number(process.env.GEMINI_TEMPERATURE);
+  return Number.isFinite(v) && process.env.GEMINI_TEMPERATURE?.trim() && v >= 0 && v <= 2 ? v : DEFAULT_TEMPERATURE;
+}
+
+/**
  * Mức suy nghĩ của model: mặc định MINIMAL để chữ đầu ra nhanh (AC2: dưới 3 giây).
  * Đổi bằng GEMINI_THINKING_LEVEL=minimal|low|medium|high; "none" = không gửi tham số này
  * (dùng khi đổi sang model không hỗ trợ mức suy nghĩ).
@@ -39,7 +50,7 @@ export const geminiStreamFactory: StreamFactory = async (key, req) => {
     contents: req.contents,
     config: {
       systemInstruction: req.systemInstruction,
-      temperature: 0.8,
+      temperature: getTemperature(),
       maxOutputTokens: 2048,
       ...(thinkingLevel ? { thinkingConfig: { thinkingLevel } } : {}),
       abortSignal: req.signal,
