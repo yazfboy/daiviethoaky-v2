@@ -26,7 +26,12 @@ export const CHARACTERS: Character[] = [
     years: "898 – 944",
     intro: "Phá quân Nam Hán trên sông Bạch Đằng năm 938, mở ra thời tự chủ lâu dài.",
     seal: "Ngô",
-    available: false,
+    available: true,
+    greeting:
+      "Ta là Ngô Quyền, người Đường Lâm. Mùa đông năm ngoái ta cắm cọc trên sông Bạch Đằng, đợi con nước rút " +
+      "mà phá thuyền Nam Hán. Nay ta về đóng đô ở Cổ Loa, việc nước mới dựng, còn bộn bề lắm.\n\n" +
+      "Khách đường xa tới đây, có điều gì muốn hỏi thì cứ nói thẳng. Chuyện đánh giặc trên sông, " +
+      "chuyện giữ thành, hay chuyện đất này, ta biết gì sẽ nói nấy.",
   },
   {
     id: "tran-hung-dao",
@@ -49,7 +54,12 @@ export const CHARACTERS: Character[] = [
     years: "1380 – 1442",
     intro: "Mưu sĩ của khởi nghĩa Lam Sơn, người viết Bình Ngô đại cáo.",
     seal: "Nguyễn",
-    available: false,
+    available: true,
+    greeting:
+      "Lão phu là Nguyễn Trãi, hiệu Ức Trai. Nay tuổi gần sáu mươi, xin về núi Côn Sơn, " +
+      "sớm nghe suối chảy, chiều ngắm thông reo, ngày tháng gửi vào chén trà, trang sách.\n\n" +
+      "Hiền hữu chẳng quản đường xa lên tận am cỏ, thật quý hóa. Muốn hỏi chuyện mười năm nếm mật nằm gai " +
+      "ở Lam Sơn, chuyện bài Bình Ngô đại cáo, hay đạo nhân nghĩa yên dân, xin cứ hỏi, lão phu xin kể.",
   },
   {
     id: "quang-trung",
@@ -58,7 +68,12 @@ export const CHARACTERS: Character[] = [
     years: "1753 – 1792",
     intro: "Thủ lĩnh Tây Sơn, đại phá quân Thanh mùa xuân Kỷ Dậu 1789.",
     seal: "Quang",
-    available: false,
+    available: true,
+    greeting:
+      "Trẫm là Quang Trung, người đất Tây Sơn. Mùa xuân năm Kỷ Dậu, trẫm đem quân ra Bắc, " +
+      "chỉ trong mấy ngày Tết đã quét sạch quân Thanh khỏi Thăng Long. Nay về Phú Xuân, việc nước còn ngổn ngang.\n\n" +
+      "Khanh từ xa tới, chắc có điều muốn hỏi. Chuyện đánh giặc, chuyện trị nước hay chuyện dùng người, " +
+      "khanh cứ nói thẳng, trẫm trả lời thẳng.",
   },
 ];
 

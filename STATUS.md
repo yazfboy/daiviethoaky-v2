@@ -2,11 +2,12 @@
 
 ## Trạng thái các Phase
 - Phase 1 (khung web, chọn nhân vật, chat stream với Trần Hưng Đạo): **Đã xong** (QA: PASS AC)
-- Phase 2 (đủ 4 nhân vật, chất lượng nhập vai): Chưa làm
-- Phase 3 (AI Đạo diễn + minh họa ảnh): Chưa làm
-- Phase 4 (minh họa video): Chưa làm
-- Phase 5 (tranh AI vẽ dự phòng): Chưa làm
-- Phase 6 (hoàn thiện, giới hạn chi phí, triển khai public): Chưa làm
+- Phase 2 (đủ 4 nhân vật, chất lượng nhập vai, bộ câu hỏi kiểm thử chuẩn): **Đang làm**
+- Phase 3 (AI Đạo diễn + minh họa ảnh có ghi nguồn): Chưa làm
+- Phase 4 (minh họa video: công tắc bật/tắt, phát đúng đoạn): Chưa làm
+- Phase 5 (tranh AI vẽ dự phòng, gắn nhãn): Chưa làm
+- Phase 6 (motion & humanize: chuyển trang, hiệu ứng, rà giao diện, responsive): Chưa làm
+- Phase 7 (ổn định & triển khai: trạng thái chờ/lỗi, giới hạn tần suất, xác nhận 18+, thông báo dữ liệu, URL public, kịch bản demo): Chưa làm
 
 ## Stack & Lệnh chạy (stack giữ cố định)
 - Next.js 16 (App Router, Route Handler) + React 19 + TypeScript, Node.js >= 20.9 (đã chạy trên Node 24)
@@ -44,9 +45,9 @@
 ## Mock tạm / Nợ kỹ thuật / Điểm lệch PLAN.md
 - Mock: vùng minh họa chỉ là khung trống (Phase 3). Ngô Quyền, Nguyễn Trãi, Quang Trung chỉ có thẻ "Sắp ra mắt", chưa có prompt (Phase 2)
 - Khóa #6 và #7 trong `.env` bị Google trả 403 "free tier is not available for this project" (cần bật billing). Pool tự bỏ qua, 10 phút thử lại một lần
-- Gửi song song có trễ có thể làm tăng số lần gọi API khi Gemini chậm → xử lý chi phí ở Phase 6
+- Gửi song song có trễ có thể làm tăng số lần gọi API khi Gemini chậm → xử lý chi phí ở Phase 7
 - Key pool và trạng thái nghỉ chỉ nằm trong bộ nhớ của một tiến trình (mất khi restart, không chia sẻ giữa nhiều instance)
-- Chưa giới hạn tần suất gọi AI (Phase 6)
+- Chưa giới hạn tần suất gọi AI (Phase 7)
 - AI thỉnh thoảng lệch chi tiết nhỏ (vd nói "hội nghị ở Đông Bộ Đầu", trong khi đó là nơi duyệt binh) → tinh chỉnh prompt ở Phase 2
 - Ô nhập tự giãn chiều cao nhờ CSS `field-sizing`; Firefox chưa hỗ trợ nên ô nhập ở Firefox không tự giãn
 - Lần cold start đầu tiên chữ đầu có thể chậm tới ~3,5 giây; khi Gemini quá tải có lượt tới ~5 giây (QA đo)

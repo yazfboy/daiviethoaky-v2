@@ -11,7 +11,8 @@
     "build": "next build",
     "start": "next start",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "eval": "vitest run --config vitest.eval.config.mts"
   },
   "dependencies": {
     "@google/genai": "3.6.1",

@@ -24,5 +24,6 @@ export default async function ChatPage({ params }: { params: Promise<{ character
     );
   }
 
-  return <ChatScreen character={character} />;
+  // key: đổi nhân vật thì dựng lại màn chat từ đầu, không để lịch sử nhân vật này lọt sang nhân vật kia.
+  return <ChatScreen key={character.id} character={character} />;
 }

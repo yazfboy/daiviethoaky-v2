@@ -20,3 +20,6 @@ coverage/
 
 # cau hinh preview cua Claude Code
 .claude/
+
+# ket qua chay thu co loc cua bo kiem thu (ket qua chinh eval/ket-qua.md thi commit)
+eval/ket-qua-loc.md

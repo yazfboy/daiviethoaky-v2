@@ -2,10 +2,22 @@ import "server-only";
 
 import { getCharacter, MAX_USER_MESSAGE_CHARS } from "@/lib/characters";
 import type { ChatTurn } from "@/lib/chatProtocol";
-import { TRAN_HUNG_DAO_SYSTEM_PROMPT } from "@/lib/server/personas/tranHungDao";
+import { NGO_QUYEN_OPENING_TURN, NGO_QUYEN_SYSTEM_PROMPT } from "@/lib/server/personas/ngoQuyen";
+import { NGUYEN_TRAI_OPENING_TURN, NGUYEN_TRAI_SYSTEM_PROMPT } from "@/lib/server/personas/nguyenTrai";
+import { QUANG_TRUNG_OPENING_TURN, QUANG_TRUNG_SYSTEM_PROMPT } from "@/lib/server/personas/quangTrung";
+import { TRAN_HUNG_DAO_OPENING_TURN, TRAN_HUNG_DAO_SYSTEM_PROMPT } from "@/lib/server/personas/tranHungDao";
 
-const SYSTEM_PROMPTS: Record<string, string> = {
-  "tran-hung-dao": TRAN_HUNG_DAO_SYSTEM_PROMPT,
+interface Persona {
+  systemPrompt: string;
+  /** Lượt mở màn ẩn: Gemini cần hội thoại bắt đầu bằng lượt "user", lời chào là lượt "model" kế tiếp. */
+  openingTurn: string;
+}
+
+const PERSONAS: Record<string, Persona> = {
+  "ngo-quyen": { systemPrompt: NGO_QUYEN_SYSTEM_PROMPT, openingTurn: NGO_QUYEN_OPENING_TURN },
+  "tran-hung-dao": { systemPrompt: TRAN_HUNG_DAO_SYSTEM_PROMPT, openingTurn: TRAN_HUNG_DAO_OPENING_TURN },
+  "nguyen-trai": { systemPrompt: NGUYEN_TRAI_SYSTEM_PROMPT, openingTurn: NGUYEN_TRAI_OPENING_TURN },
+  "quang-trung": { systemPrompt: QUANG_TRUNG_SYSTEM_PROMPT, openingTurn: QUANG_TRUNG_OPENING_TURN },
 };
 
 /** Số lượt gần nhất gửi kèm cho AI (giữ trí nhớ hội thoại mà không phình vô hạn). */
@@ -13,8 +25,12 @@ export const MAX_HISTORY_TURNS = 60;
 /** Giới hạn độ dài một lời đáp cũ của nhân vật được gửi lại. */
 const MAX_MODEL_TURN_CHARS = 6000;
 
-/** Lượt mở màn ẩn: Gemini cần hội thoại bắt đầu bằng lượt "user", lời chào là lượt "model" kế tiếp. */
-export const OPENING_USER_TURN = "(Khách từ phương xa vừa bước vào trướng, cúi chào Hưng Đạo Vương.)";
+/** Lượt mở màn ẩn của Trần Hưng Đạo (giữ tên cũ từ Phase 1). */
+export const OPENING_USER_TURN = TRAN_HUNG_DAO_OPENING_TURN;
+
+export function getOpeningTurn(characterId: string): string {
+  return PERSONAS[characterId]?.openingTurn ?? "(Khách từ phương xa vừa bước vào, cúi chào.)";
+}
 
 export interface GeminiContent {
   role: "user" | "model";
@@ -31,7 +47,7 @@ export function validateChatBody(body: unknown): ValidationResult {
   const { characterId, messages } = body as Record<string, unknown>;
   if (typeof characterId !== "string") return { ok: false, code: "BAD_REQUEST" };
   const character = getCharacter(characterId);
-  if (!character || !character.available || !SYSTEM_PROMPTS[characterId]) {
+  if (!character || !character.available || !PERSONAS[characterId]) {
     return { ok: false, code: "CHARACTER_UNAVAILABLE" };
   }
   if (!Array.isArray(messages) || messages.length === 0) return { ok: false, code: "BAD_REQUEST" };
@@ -53,7 +69,7 @@ export function validateChatBody(body: unknown): ValidationResult {
 }
 
 export function getSystemPrompt(characterId: string): string {
-  return SYSTEM_PROMPTS[characterId];
+  return PERSONAS[characterId].systemPrompt;
 }
 
 /**
@@ -68,7 +84,7 @@ export function buildContents(characterId: string, messages: ChatTurn[]): Gemini
 
   const turns: ChatTurn[] = [];
   if (greeting) {
-    turns.push({ role: "user", text: OPENING_USER_TURN }, { role: "model", text: greeting });
+    turns.push({ role: "user", text: getOpeningTurn(characterId) }, { role: "model", text: greeting });
   }
   turns.push(...recent);
 

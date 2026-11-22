@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { getCharacter } from "@/lib/characters";
-import { buildContents, MAX_HISTORY_TURNS, OPENING_USER_TURN, validateChatBody } from "@/lib/server/conversation";
+import { CHARACTERS, getCharacter } from "@/lib/characters";
+import {
+  buildContents,
+  getOpeningTurn,
+  getSystemPrompt,
+  MAX_HISTORY_TURNS,
+  OPENING_USER_TURN,
+  validateChatBody,
+} from "@/lib/server/conversation";
 import { cleanModelText } from "@/lib/text";
 
 describe("validateChatBody", () => {
@@ -9,9 +16,22 @@ describe("validateChatBody", () => {
     expect(r).toEqual({ ok: true, characterId: "tran-hung-dao", messages: [{ role: "user", text: "Chào ngài" }] });
   });
 
-  it("từ chối nhân vật chưa mở", () => {
-    const r = validateChatBody({ characterId: "ngo-quyen", messages: [{ role: "user", text: "Chào" }] });
+  it("từ chối nhân vật không có (Phase 1 dùng ngo-quyen; từ Phase 2 cả 4 người đều đã mở)", () => {
+    const r = validateChatBody({ characterId: "ly-thuong-kiet", messages: [{ role: "user", text: "Chào" }] });
     expect(r).toEqual({ ok: false, code: "CHARACTER_UNAVAILABLE" });
+  });
+
+  it("cả 4 nhân vật đều mở, mỗi người có lời chào, lượt mở màn và prompt riêng", () => {
+    const ids = CHARACTERS.map((c) => c.id);
+    expect(ids).toHaveLength(4);
+    for (const id of ids) {
+      expect(validateChatBody({ characterId: id, messages: [{ role: "user", text: "Chào" }] }).ok).toBe(true);
+      expect(getCharacter(id)!.greeting).toBeTruthy();
+    }
+    expect(new Set(ids.map(getSystemPrompt)).size).toBe(4);
+    expect(new Set(ids.map(getOpeningTurn)).size).toBe(4);
+    expect(getSystemPrompt("quang-trung")).toContain('Luôn tự xưng "trẫm"');
+    expect(getSystemPrompt("nguyen-trai")).toContain('Luôn gọi người đang trò chuyện là "hiền hữu"');
   });
 
   it("từ chối dữ liệu sai hoặc lượt cuối không phải của người dùng", () => {
