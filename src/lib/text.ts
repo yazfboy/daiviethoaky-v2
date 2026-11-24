@@ -40,11 +40,25 @@ const EN_NUMBER_WORD = new RegExp(
 );
 
 /**
- * Làm sạch lời đáp để hiển thị dạng văn xuôi: bỏ ký hiệu Markdown lọt ra (**, #, gạch đầu dòng),
+ * Chữ tục do model gõ trật (vd "binh đéo" thay cho "binh đao"). Nhân vật không bao giờ được nói tục,
+ * nên sửa về chữ đúng nếu đoán được, còn lại thay bằng chữ trung tính.
+ */
+const PROFANITY_FIXES: [RegExp, string][] = [
+  [/(?<![\p{L}\p{M}])binh đéo(?![\p{L}\p{M}])/giu, "binh đao"],
+  [/(?<![\p{L}\p{M}])đéo(?![\p{L}\p{M}])/giu, "chẳng"],
+  [/(?<![\p{L}\p{M}])(địt|đụ|đ[éè]o mẹ|đ[mM]|vãi lồn|lồn|cặc|buồi)(?![\p{L}\p{M}])/giu, ""],
+];
+
+function fixProfanity(text: string): string {
+  return PROFANITY_FIXES.reduce((t, [re, to]) => t.replace(re, to), text);
+}
+
+/**
+ * Làm sạch lời đáp để hiển thị dạng văn xuôi: bỏ ký hiệu Markdown lọt ra (**, #, gạch đầu dòng), chữ tục gõ trật,
  * ký tự chữ Hán và chữ số tiếng Anh lọt vào, sửa can chi lệch năm, dù prompt đã dặn. Không đụng tới dấu tiếng Việt.
  */
 export function cleanModelText(text: string): string {
-  return fixCanChi(text)
+  return fixProfanity(fixCanChi(text))
     .replace(CJK, "")
     .replace(EN_NUMBER_WORD, (w) => EN_NUMBERS[w.toLowerCase()])
     .replace(/\*\*(.+?)\*\*/gs, "$1")

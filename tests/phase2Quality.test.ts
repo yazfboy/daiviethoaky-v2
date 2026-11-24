@@ -32,6 +32,18 @@ describe("cleanModelText tự sửa can chi lệch năm và chữ số tiếng A
   });
 });
 
+describe("cleanModelText chặn chữ tục do model gõ trật", () => {
+  it("sửa 'binh đéo' thành 'binh đao', không để lọt chữ tục", () => {
+    expect(cleanModelText("Hỏi chuyện binh đéo xưa nay là thế, khanh thấy trẫm nói có phải không?")).toBe(
+      "Hỏi chuyện binh đao xưa nay là thế, khanh thấy trẫm nói có phải không?",
+    );
+    expect(cleanModelText("ta đéo biết")).toBe("ta chẳng biết");
+  });
+  it("không đụng các chữ thường gần giống", () => {
+    expect(cleanModelText("binh đao, đeo gươm, vượt đèo cao, cái lồng đèn")).toBe("binh đao, đeo gươm, vượt đèo cao, cái lồng đèn");
+  });
+});
+
 describe("canChi", () => {
   it("tính đúng can chi các mốc trong hồ sơ", () => {
     expect(canChi(938)).toBe("Mậu Tuất");
