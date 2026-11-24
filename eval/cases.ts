@@ -441,7 +441,8 @@ export const CASES: EvalCase[] = [
       "Tư tưởng nhân nghĩa, yên dân",
     ],
     mustNot: ["Nói viết để đánh quân Nguyên hay quân Thanh", "Bịa câu trích ngoài danh sách được phép"],
-    require: [/1428|Mậu Thân/, /nhân nghĩa|đại nghĩa|chí nhân|yên dân/i],
+    // Kiểm tra cứng chỉ dùng cho tên riêng và năm; ý "nhân nghĩa, yên dân" có nhiều cách nói nên để giám khảo chấm (Bug #10).
+    require: [/1428|Mậu Thân/],
   },
   {
     id: "nt-02",

@@ -24,6 +24,10 @@ describe("cleanModelText tự sửa can chi lệch năm và chữ số tiếng A
     expect(cleanModelText("trưa mồng five Tết vào thành")).toBe("trưa mồng năm Tết vào thành");
     expect(cleanModelText("Mồng Seven Tết")).toBe("Mồng bảy Tết");
     expect(cleanModelText("tên người, tôn ti, nên")).toBe("tên người, tôn ti, nên");
+    // Bug #12: "ten" là từ tiếng Việt (gỉ đồng), không phải số mười.
+    expect(cleanModelText("gươm giáo đóng ten rỉ")).toBe("gươm giáo đóng ten rỉ");
+    expect(cleanModelText("ngày ten tháng chạp")).toBe("ngày mười tháng chạp");
+    expect(cleanModelText("five người lính")).toBe("five người lính");
   });
 });
 

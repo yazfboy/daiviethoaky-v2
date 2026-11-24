@@ -33,7 +33,11 @@ const EN_NUMBERS: Record<string, string> = {
   one: "một", two: "hai", three: "ba", four: "bốn", five: "năm",
   six: "sáu", seven: "bảy", eight: "tám", nine: "chín", ten: "mười",
 };
-const EN_NUMBER_WORD = new RegExp(`(?<![A-Za-z])(${Object.keys(EN_NUMBERS).join("|")})(?![A-Za-z])`, "gi");
+// Chỉ đổi khi đứng sau chữ chỉ ngày tháng ("mồng five Tết"), để không đụng từ tiếng Việt trùng mặt chữ như "ten" (gỉ đồng).
+const EN_NUMBER_WORD = new RegExp(
+  `(?<=(?<![\\p{L}\\p{M}])(?:mồng|mùng|ngày|tháng)\\s+)(${Object.keys(EN_NUMBERS).join("|")})(?![\\p{L}\\p{M}])`,
+  "giu",
+);
 
 /**
  * Làm sạch lời đáp để hiển thị dạng văn xuôi: bỏ ký hiệu Markdown lọt ra (**, #, gạch đầu dòng),
