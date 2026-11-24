@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { canChi } from "../eval/harness";
+import { canChi, overallVerdict, summarize, type CaseResult } from "../eval/harness";
+import type { EvalCase } from "../eval/cases";
 import { DEFAULT_TEMPERATURE, getTemperature } from "@/lib/server/gemini";
 import { cleanModelText } from "@/lib/text";
 
@@ -45,6 +46,30 @@ describe("canChi", () => {
     expect(canChi(1439)).toBe("Kỷ Mùi");
     expect(canChi(1789)).toBe("Kỷ Dậu");
     expect(canChi(1791)).toBe("Tân Hợi");
+  });
+});
+
+describe("overallVerdict tách lỗi hạ tầng khỏi lỗi nhập vai", () => {
+  const mk = (id: string, group: EvalCase["group"], state: "pass" | "fail" | "infra"): CaseResult => ({
+    c: { id, character: "ngo-quyen", group, question: "?", mustHave: [], mustNot: [] },
+    answer: "",
+    ttftMs: 1000,
+    attempts: 1,
+    ruleIssues: [],
+    judge: null,
+    pass: state === "pass",
+    ...(state === "infra" ? { error: "Giám khảo lỗi: 429", infra: true } : {}),
+  });
+  const base = Array.from({ length: 9 }, (_, i) => mk(`nq-${i}`, "later", "pass"));
+
+  it("ĐẠT khi mọi câu cốt lõi đạt và tỉ lệ ≥ 90%", () => {
+    expect(overallVerdict(summarize([...base, mk("core", "core", "pass")]))).toBe("ĐẠT");
+  });
+  it("CHƯA ĐẠT khi một câu cốt lõi trượt vì lời đáp", () => {
+    expect(overallVerdict(summarize([...base, mk("core", "core", "fail")]))).toBe("CHƯA ĐẠT");
+  });
+  it("KHÔNG KẾT LUẬN ĐƯỢC khi chỉ trượt vì lỗi hạ tầng", () => {
+    expect(overallVerdict(summarize([...base, mk("core", "core", "infra")]))).toBe("KHÔNG KẾT LUẬN ĐƯỢC");
   });
 });
 

@@ -103,7 +103,8 @@ export const CASES: EvalCase[] = [
       "Kiều Công Tiễn cầu cứu, rước quân Nam Hán sang",
     ],
     mustNot: ["Tả chi tiết cảnh chém giết ghê rợn", "Nói sai quan hệ giữa các nhân vật"],
-    require: [/Dương Đình Nghệ|Dương công/, /Nam Hán/],
+    // Chủ cũ có nhiều cách gọi đúng (Dương Đình Nghệ, Dương công, Dương Tiết độ sứ...), chỉ cần có họ Dương (Bug #14).
+    require: [/Dương/, /Nam Hán/],
     forbid: [NOT_DAI_VIET],
   },
   {

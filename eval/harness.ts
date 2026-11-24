@@ -20,6 +20,8 @@ export interface CaseResult {
   ruleIssues: string[];
   judge: { pass: boolean; missing: string[]; violations: string[]; note: string; model: string } | null;
   error?: string;
+  /** Vẫn lỗi hạ tầng (gọi AI / giám khảo thất bại) sau các lượt chạy lại: không chấm được, không phải lỗi nhập vai. */
+  infra?: boolean;
   pass: boolean;
 }
 
@@ -208,7 +210,8 @@ async function judgeOnce(c: EvalCase, answer: string, temperature: number): Prom
   let lastErr: unknown;
   // Hạn mức tính theo từng cặp (khóa, model). Khóa bị 401/403 thì bỏ hẳn; cặp bị 429 thì nghỉ 65 giây.
   // Model chính hết khóa dùng được thì chuyển NGAY sang model dự phòng; mọi model đều đang nghỉ thì mới chờ.
-  for (let round = 0; round < 15; round++) {
+  // Đủ lượt để chờ qua giới hạn theo phút (mỗi cặp khóa–model nghỉ 65 giây) thay vì bỏ cuộc sớm.
+  for (let round = 0; round < 40; round++) {
     const pick = pickJudgeSlot(keys);
     if (!pick) {
       const wait = nextJudgeRecovery() - Date.now();
@@ -290,17 +293,41 @@ export async function runCase(c: EvalCase): Promise<CaseResult> {
   }
 }
 
-export async function runAll(cases: EvalCase[], concurrency: number, onDone?: (r: CaseResult) => void) {
+/** Lượt chạy lại cho câu bị lỗi hạ tầng (hết hạn mức theo phút, mất mạng, Gemini cắt luồng). */
+const INFRA_RETRY_ROUNDS = 2;
+const INFRA_RETRY_WAIT_MS = 70_000;
+
+export async function runAll(
+  cases: EvalCase[],
+  concurrency: number,
+  onDone?: (r: CaseResult) => void,
+  log: (msg: string) => void = () => {},
+) {
   const results: CaseResult[] = new Array(cases.length);
-  let next = 0;
-  async function worker() {
-    while (next < cases.length) {
-      const i = next++;
-      results[i] = await runCase(cases[i]);
-      onDone?.(results[i]);
+
+  async function pass(indexes: number[], parallel: number) {
+    let next = 0;
+    async function worker() {
+      while (next < indexes.length) {
+        const i = indexes[next++];
+        results[i] = await runCase(cases[i]);
+        onDone?.(results[i]);
+      }
     }
+    await Promise.all(Array.from({ length: Math.min(parallel, indexes.length) }, worker));
   }
-  await Promise.all(Array.from({ length: Math.min(concurrency, cases.length) }, worker));
+
+  await pass(cases.map((_, i) => i), concurrency);
+
+  // Câu lỗi hạ tầng không nói gì về chất lượng nhập vai: chờ hạn mức hồi rồi chạy lại.
+  for (let round = 1; round <= INFRA_RETRY_ROUNDS; round++) {
+    const failed = results.flatMap((r, i) => (r.error ? [i] : []));
+    if (failed.length === 0) break;
+    log(`\n${failed.length} câu lỗi hạ tầng, chờ ${INFRA_RETRY_WAIT_MS / 1000} giây rồi chạy lại (lượt ${round}/${INFRA_RETRY_ROUNDS})...`);
+    await sleep(INFRA_RETRY_WAIT_MS);
+    await pass(failed, 2);
+  }
+  for (const r of results) if (r.error) r.infra = true;
   return results;
 }
 
@@ -317,7 +344,23 @@ export interface CharacterSummary {
   ttftP90: number | null;
   ttftMax: number | null;
   ok: boolean;
+  /** Số câu không chấm được vì lỗi hạ tầng. */
+  infra: number;
+  /** Nếu coi các câu lỗi hạ tầng là đạt thì nhân vật có đạt ngưỡng không (để phân biệt "chưa đạt" với "không kết luận được"). */
+  okIgnoringInfra: boolean;
 }
+
+export type Verdict3 = "ĐẠT" | "CHƯA ĐẠT" | "KHÔNG KẾT LUẬN ĐƯỢC";
+
+/** ĐẠT: mọi nhân vật đạt. CHƯA ĐẠT: có nhân vật trượt vì lời đáp. KHÔNG KẾT LUẬN ĐƯỢC: chỉ trượt vì lỗi hạ tầng. */
+export function overallVerdict(sums: CharacterSummary[]): Verdict3 {
+  if (sums.every((s) => s.ok)) return "ĐẠT";
+  if (sums.every((s) => s.okIgnoringInfra)) return "KHÔNG KẾT LUẬN ĐƯỢC";
+  return "CHƯA ĐẠT";
+}
+
+const characterVerdict = (s: CharacterSummary): Verdict3 =>
+  s.ok ? "ĐẠT" : s.okIgnoringInfra ? "KHÔNG KẾT LUẬN ĐƯỢC" : "CHƯA ĐẠT";
 
 const quantile = (xs: number[], q: number) => {
   if (xs.length === 0) return null;
@@ -334,7 +377,12 @@ export function summarize(results: CaseResult[]): CharacterSummary[] {
     const passed = rs.filter((r) => r.pass).length;
     const corePassed = core.filter((r) => r.pass).length;
     const rate = passed / rs.length;
+    const infra = rs.filter((r) => r.infra).length;
+    const passedOrInfra = rs.filter((r) => r.pass || r.infra).length;
+    const coreOk = core.every((r) => r.pass || r.infra);
     return {
+      infra,
+      okIgnoringInfra: passedOrInfra / rs.length >= 0.9 && coreOk,
       character,
       total: rs.length,
       passed,
@@ -354,7 +402,8 @@ const cell = (s: string) => s.replace(/\|/g, "\\|").replace(/\n+/g, " ");
 
 export function renderReport(results: CaseResult[], meta: { startedAt: Date; durationMs: number; partial: boolean }): string {
   const sums = summarize(results);
-  const allOk = sums.every((s) => s.ok);
+  const verdict = overallVerdict(sums);
+  const infraTotal = results.filter((r) => r.infra).length;
   const lines: string[] = [];
   lines.push("# Kết quả bộ kiểm thử nhập vai");
   lines.push("");
@@ -362,7 +411,12 @@ export function renderReport(results: CaseResult[], meta: { startedAt: Date; dur
   lines.push(`- Model trả lời: \`${getModelName()}\` · mức suy nghĩ: \`${process.env.GEMINI_THINKING_LEVEL ?? "minimal"}\` · độ ngẫu nhiên: \`${getTemperature()}\` · giám khảo: \`${[...judgeModelsUsed].join(", ") || JUDGE_MODELS()[0]}\`, chấm theo đa số ${JUDGE_VOTES()} phiếu`);
   lines.push(`- Ngưỡng đạt: mỗi nhân vật ≥ 90%, nhóm "${GROUP_LABEL.core}" 100%. Một câu đạt khi qua kiểm tra cứng VÀ giám khảo chấm đạt.`);
   lines.push(`- Chữ đầu: đo trong tiến trình (từ lúc gửi tới khi có chữ đầu tiên từ Gemini, gồm cả gửi song song có trễ), chưa gồm mạng trình duyệt ↔ server.`);
-  lines.push(`- **Kết luận chung: ${allOk ? "ĐẠT" : "CHƯA ĐẠT"}**`);
+  lines.push(
+    `- Câu lỗi hạ tầng (gọi AI hoặc giám khảo thất bại, đã chờ và chạy lại ${INFRA_RETRY_ROUNDS} lượt) ghi "LỖI HẠ TẦNG": không chấm được, không phải lỗi nhập vai. Còn lại: ${infraTotal} câu.`,
+  );
+  lines.push(
+    `- **Kết luận chung: ${verdict}**${verdict === "KHÔNG KẾT LUẬN ĐƯỢC" ? " (chỉ trượt vì lỗi hạ tầng; hãy chạy lại khi hạn mức đã hồi)" : ""}`,
+  );
   lines.push("");
   lines.push("## Tổng hợp");
   lines.push("");
@@ -370,7 +424,7 @@ export function renderReport(results: CaseResult[], meta: { startedAt: Date; dur
   lines.push("|---|---|---|---|---|---|---|---|");
   for (const s of sums) {
     lines.push(
-      `| ${PROFILE[s.character].name} | ${s.passed}/${s.total} | ${Math.round(s.rate * 100)}% | ${s.corePassed}/${s.coreTotal} | ${sec(s.ttftMedian)} | ${sec(s.ttftP90)} | ${sec(s.ttftMax)} | ${s.ok ? "ĐẠT" : "CHƯA ĐẠT"} |`,
+      `| ${PROFILE[s.character].name} | ${s.passed}/${s.total} | ${Math.round(s.rate * 100)}% | ${s.corePassed}/${s.coreTotal} | ${sec(s.ttftMedian)} | ${sec(s.ttftP90)} | ${sec(s.ttftMax)} | ${characterVerdict(s)}${s.infra ? ` (${s.infra} câu lỗi hạ tầng)` : ""} |`,
     );
   }
   lines.push("");
@@ -390,14 +444,14 @@ export function renderReport(results: CaseResult[], meta: { startedAt: Date; dur
           .filter(Boolean)
           .join(" · ");
     lines.push(
-      `| ${r.c.id} | ${GROUP_LABEL[r.c.group as Group]} | ${cell(r.c.question)} | ${r.pass ? "ĐẠT" : "**KHÔNG ĐẠT**"} | ${sec(r.ttftMs)} | ${cell(notes)} |`,
+      `| ${r.c.id} | ${GROUP_LABEL[r.c.group as Group]} | ${cell(r.c.question)} | ${r.pass ? "ĐẠT" : r.infra ? "LỖI HẠ TẦNG" : "**KHÔNG ĐẠT**"} | ${sec(r.ttftMs)} | ${cell(notes)} |`,
     );
   }
   lines.push("");
   lines.push("## Lời đáp đầy đủ");
   for (const r of results) {
     lines.push("");
-    lines.push(`### ${r.c.id} · ${PROFILE[r.c.character].name} · ${r.pass ? "ĐẠT" : "KHÔNG ĐẠT"}`);
+    lines.push(`### ${r.c.id} · ${PROFILE[r.c.character].name} · ${r.pass ? "ĐẠT" : r.infra ? "LỖI HẠ TẦNG" : "KHÔNG ĐẠT"}`);
     for (const t of r.c.history ?? []) lines.push(`> _(lượt trước) ${t.role === "user" ? "Hỏi" : "Đáp"}: ${cell(t.text)}_`);
     lines.push(`**Hỏi:** ${r.c.question}`);
     lines.push("");
