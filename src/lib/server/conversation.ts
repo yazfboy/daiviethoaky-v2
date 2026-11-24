@@ -5,6 +5,7 @@ import type { ChatTurn } from "@/lib/chatProtocol";
 import { NGO_QUYEN_OPENING_TURN, NGO_QUYEN_SYSTEM_PROMPT } from "@/lib/server/personas/ngoQuyen";
 import { NGUYEN_TRAI_OPENING_TURN, NGUYEN_TRAI_SYSTEM_PROMPT } from "@/lib/server/personas/nguyenTrai";
 import { QUANG_TRUNG_OPENING_TURN, QUANG_TRUNG_SYSTEM_PROMPT } from "@/lib/server/personas/quangTrung";
+import { renderTopicCards, selectTopicCards } from "@/lib/server/personas/topicCards";
 import { TRAN_HUNG_DAO_OPENING_TURN, TRAN_HUNG_DAO_SYSTEM_PROMPT } from "@/lib/server/personas/tranHungDao";
 
 interface Persona {
@@ -68,8 +69,19 @@ export function validateChatBody(body: unknown): ValidationResult {
   return { ok: true, characterId, messages: clean };
 }
 
+/** Prompt nhập vai gốc của nhân vật. */
 export function getSystemPrompt(characterId: string): string {
   return PERSONAS[characterId].systemPrompt;
+}
+
+/**
+ * Prompt hệ thống cho một lượt hỏi: prompt gốc + thẻ sự thật của chủ đề đang hỏi nối vào cuối
+ * (xem personas/topicCards.ts). Câu hỏi không chạm chủ đề nào thì trả nguyên prompt gốc.
+ */
+export function getTurnSystemPrompt(characterId: string, messages: ChatTurn[]): string {
+  const base = getSystemPrompt(characterId);
+  const notes = renderTopicCards(selectTopicCards(characterId, messages));
+  return notes ? `${base}\n\n${notes}` : base;
 }
 
 /**

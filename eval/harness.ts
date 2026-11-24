@@ -2,7 +2,8 @@ import { GoogleGenAI, ThinkingLevel, Type } from "@google/genai";
 import type { CharacterId } from "@/lib/characters";
 import type { ChatTurn } from "@/lib/chatProtocol";
 import { ChatStreamError, startChatStream } from "@/lib/server/chatStream";
-import { buildContents, getSystemPrompt } from "@/lib/server/conversation";
+import { buildContents, getTurnSystemPrompt } from "@/lib/server/conversation";
+import { selectTopicCards } from "@/lib/server/personas/topicCards";
 import { geminiStreamFactory, getModelName, getTemperature } from "@/lib/server/gemini";
 import { getKeyPool, parseKeys } from "@/lib/server/keyPool";
 import { canChi, cleanModelText } from "@/lib/text";
@@ -40,7 +41,8 @@ async function generate(c: EvalCase): Promise<{ answer: string; ttftMs: number; 
         pool: getKeyPool(),
         factory: geminiStreamFactory,
         model: getModelName(),
-        systemInstruction: getSystemPrompt(c.character),
+        // Đúng đường đi của /api/chat: prompt gốc + thẻ sự thật của chủ đề đang hỏi.
+        systemInstruction: getTurnSystemPrompt(c.character, messages),
         contents: buildContents(c.character, messages),
         signal: ac.signal,
       });
@@ -454,6 +456,8 @@ export function renderReport(results: CaseResult[], meta: { startedAt: Date; dur
     lines.push(`### ${r.c.id} · ${PROFILE[r.c.character].name} · ${r.pass ? "ĐẠT" : r.infra ? "LỖI HẠ TẦNG" : "KHÔNG ĐẠT"}`);
     for (const t of r.c.history ?? []) lines.push(`> _(lượt trước) ${t.role === "user" ? "Hỏi" : "Đáp"}: ${cell(t.text)}_`);
     lines.push(`**Hỏi:** ${r.c.question}`);
+    const cards = selectTopicCards(r.c.character, [...(r.c.history ?? []), { role: "user", text: r.c.question }]);
+    lines.push(`_Thẻ sự thật đã chèn: ${cards.length ? cards.map((x) => x.id).join(", ") : "không có"}_`);
     lines.push("");
     lines.push((r.answer || `_(không có lời đáp: ${r.error ?? "?"})_`).split("\n").map((l) => `> ${l}`).join("\n"));
   }

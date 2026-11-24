@@ -1,6 +1,6 @@
 import type { ChatErrorCode, StreamEvent } from "@/lib/chatProtocol";
 import { ChatStreamError, startChatStream } from "@/lib/server/chatStream";
-import { buildContents, getSystemPrompt, validateChatBody } from "@/lib/server/conversation";
+import { buildContents, getTurnSystemPrompt, validateChatBody } from "@/lib/server/conversation";
 import { geminiStreamFactory, getModelName } from "@/lib/server/gemini";
 import { getKeyPool } from "@/lib/server/keyPool";
 
@@ -43,7 +43,7 @@ export async function POST(req: Request): Promise<Response> {
       pool: getKeyPool(),
       factory: geminiStreamFactory,
       model: getModelName(),
-      systemInstruction: getSystemPrompt(v.characterId),
+      systemInstruction: getTurnSystemPrompt(v.characterId, v.messages),
       contents: buildContents(v.characterId, v.messages),
       signal: req.signal,
       log,
