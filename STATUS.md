@@ -14,7 +14,7 @@
 - `npm run eval`: bộ nhập vai 61 câu → `eval/ket-qua.md` (lọc `EVAL_ONLY` / `EVAL_CASES` → `ket-qua-loc.md`)
 - `npm run eval:director`: bộ đạo diễn 32 câu + kiểm link toàn kho ảnh → `eval/dao-dien/ket-qua.md` (lọc `DIRECTOR_EVAL_ONLY` / `DIRECTOR_EVAL_CASES`, bỏ kiểm link `DIRECTOR_EVAL_SKIP_LINKS=1`)
 - `npm run do:chu-dau`: đo chữ đầu tắt/bật đạo diễn trên server đang chạy (`BASE_URL`, `DO_CHU_DAU_LAN`) → `eval/do-chu-dau.md`; không chạy cùng lúc với eval
-- `.env` (chỉ server đọc, KHÔNG commit): `GEMINI_API_KEYS` bắt buộc · tùy chọn `GEMINI_MODEL`, `GEMINI_THINKING_LEVEL`, `GEMINI_TEMPERATURE`, `DIRECTOR_MODEL`, `DIRECTOR_FALLBACK_MODEL` (`none` = bỏ dự phòng), `DIRECTOR_ENABLED` (`false` = tắt), `DIRECTOR_THINKING_LEVEL`; eval: `EVAL_JUDGE_MODELS`, `EVAL_JUDGE_VOTES`, `EVAL_CONCURRENCY`
+- `.env` (chỉ server đọc, KHÔNG commit): `GEMINI_API_KEYS` bắt buộc · tùy chọn `GEMINI_MODEL`, `GEMINI_THINKING_LEVEL`, `GEMINI_TEMPERATURE`, `DIRECTOR_MODEL`, `DIRECTOR_FALLBACK_MODEL` (`none` = bỏ dự phòng), `DIRECTOR_ENABLED` (`false` = tắt), `DIRECTOR_THINKING_LEVEL`; eval: `EVAL_JUDGE_MODELS`, `EVAL_JUDGE_VOTES`, `EVAL_CONCURRENCY`, `EVAL_JUDGE_TIMEOUT_MS` (mặc định 60000)
 
 ## Bản đồ file/thư mục chính (toàn dự án)
 - `src/app/page.tsx` (chọn nhân vật) · `src/app/tro-chuyen/[characterId]/page.tsx` (màn chat) · `layout.tsx`, `globals.css`, `icon.svg`
@@ -41,6 +41,7 @@
 - Header CSP `img-src 'self' data: blob: upload.wikimedia.org thumb.wikimedia.org` trong `next.config.ts`; `compress: false` để stream không bị gom
 - Mỗi ảnh hiện: nhãn loại ảnh bắt buộc (ảnh chụp ngày nay / tượng, tranh đời sau, không phải chân dung thật / mô hình / bản in đời sau / bản phục chế) + chú thích viết tay + tác giả · giấy phép (link) · link trang Commons
 - Log server mỗi lượt: `[dao-dien] <nhân vật> · lượt N · "<≤40 ký tự>" → ẢNH chủ đề / mã ảnh | KHÔNG ẢNH · lý do · thời gian · khóa · model`
+- Eval: mỗi lần chấm của giám khảo giới hạn 60 s; quá giờ thì cặp (model, khóa) nghỉ 10 s rồi chấm lại, hết lượt thì ghi "LỖI HẠ TẦNG" (kết nối đứt ngầm khi máy ngủ không còn treo cả bộ)
 - Script tuyển ảnh / kiểm link Commons: User-Agent chung, tuần tự, giãn ≥ 5 s cho lệnh tìm (API Commons trả 429 nếu gọi dồn)
 
 ## Mock tạm / Nợ kỹ thuật / Điểm lệch PLAN.md
@@ -49,7 +50,6 @@
 - Ảnh Bình Ngô đại cáo là PNG nặng (~0,5 MB ở cỡ 500 px)
 - `gemini-3.1-flash-lite` hay chậm / 503 nên lúc đo 18–20/28 lượt dùng model dự phòng → phần lớn lượt đạo diễn đang tốn hạn mức `gemini-3.5-flash-lite` của chat. Điểm lệch so với đề xuất ban đầu (model riêng hoàn toàn), Manager đã duyệt
 - Khi Gemini quá tải, thỉnh thoảng một lượt không có ảnh dù đúng chủ đề
-- [NGOÀI AC] Phase 3, hoãn: `npm run eval` treo tới hết `testTimeout` (60 phút) nếu máy ngủ làm đứt ngầm kết nối khi giám khảo đang chờ (`eval/harness.ts`, không đặt timeout cho lần gọi giám khảo); chạy lại khi máy thức thì qua
 - Bug #11 [NGOÀI AC], hoãn: kiểm tra cứng của eval đánh trượt lời đáp đúng sử nhưng không có từ xưng hô nào
 - Bug #13 [NGOÀI AC], hoãn: Nguyễn Trãi đôi khi tự xưng "ta", nói "thời khác", hoặc dính chữ khi lọc chữ Hán
 - Trượt ngẫu nhiên hiếm ở eval nhập vai (vd `nt-10` có lần đoán mò "Internet"); một lần eval có thể trượt vì một câu → chạy lại

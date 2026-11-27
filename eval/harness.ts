@@ -223,19 +223,31 @@ async function judgeOnce(c: EvalCase, answer: string, temperature: number): Prom
     }
     const { model, key } = pick;
     {
+      // Giới hạn thời gian mỗi lần chấm: kết nối đứt ngầm (vd máy ngủ giữa chừng) không được treo cả bộ kiểm thử.
+      const ac = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        const res = await new GoogleGenAI({ apiKey: key }).models.generateContent({
-          model,
-          contents: prompt,
-          config: {
-            systemInstruction: JUDGE_SYSTEM,
-            temperature,
-            responseMimeType: "application/json",
-            responseSchema: JUDGE_SCHEMA,
-            // Dòng 2.x dùng ngân sách suy nghĩ, dòng 3.x dùng mức suy nghĩ.
-            thinkingConfig: /^gemini-2\./.test(model) ? { thinkingBudget: 1024 } : { thinkingLevel: ThinkingLevel.LOW },
-          },
-        });
+        const res = await Promise.race([
+          new GoogleGenAI({ apiKey: key }).models.generateContent({
+            model,
+            contents: prompt,
+            config: {
+              systemInstruction: JUDGE_SYSTEM,
+              temperature,
+              responseMimeType: "application/json",
+              responseSchema: JUDGE_SCHEMA,
+              // Dòng 2.x dùng ngân sách suy nghĩ, dòng 3.x dùng mức suy nghĩ.
+              thinkingConfig: /^gemini-2\./.test(model) ? { thinkingBudget: 1024 } : { thinkingLevel: ThinkingLevel.LOW },
+              abortSignal: ac.signal,
+            },
+          }),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              ac.abort();
+              reject(new JudgeTimeoutError(JUDGE_TIMEOUT_MS()));
+            }, JUDGE_TIMEOUT_MS());
+          }),
+        ]);
         const data = JSON.parse(res.text ?? "{}");
         judgeModelsUsed.add(model);
         return {
@@ -248,15 +260,29 @@ async function judgeOnce(c: EvalCase, answer: string, temperature: number): Prom
       } catch (err) {
         lastErr = err;
         const status = (err as { status?: number })?.status;
-        if (status === 401 || status === 403) deadJudgeKeys.add(key);
+        // Quá giờ: coi như máy chủ quá tải, cho cặp (model, khóa) nghỉ ngắn rồi chấm lại bằng cặp khác.
+        if (err instanceof JudgeTimeoutError) judgeRestUntil.set(`${model}|${key}`, Date.now() + 10_000);
+        else if (status === 401 || status === 403) deadJudgeKeys.add(key);
         else if (status === 404) deadJudgeModels.add(model);
         else if (status === 429) judgeRestUntil.set(`${model}|${key}`, Date.now() + 65_000);
         else if (status !== undefined && status >= 500) judgeRestUntil.set(`${model}|${key}`, Date.now() + 10_000);
         else await sleep(1_500);
+      } finally {
+        clearTimeout(timer);
       }
     }
   }
   throw new Error(`Giám khảo lỗi: ${(lastErr as Error)?.message?.slice(0, 160)}`);
+}
+
+/** Thời gian chờ tối đa một lần chấm (EVAL_JUDGE_TIMEOUT_MS, mặc định 60 giây). */
+const JUDGE_TIMEOUT_MS = () => Number(process.env.EVAL_JUDGE_TIMEOUT_MS) || 60_000;
+
+class JudgeTimeoutError extends Error {
+  constructor(ms: number) {
+    super(`giám khảo không phản hồi sau ${Math.round(ms / 1000)} giây`);
+    this.name = "JudgeTimeoutError";
+  }
 }
 
 /** (model|khóa) -> thời điểm hết nghỉ sau khi bị 429. */
