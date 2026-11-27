@@ -7,13 +7,28 @@ import { IllustrationPanel } from "@/components/IllustrationPanel";
 import { MAX_USER_MESSAGE_CHARS, type Character } from "@/lib/characters";
 import { errorMessage, type ChatErrorCode } from "@/lib/chatProtocol";
 import { ClientChatError, streamChat } from "@/lib/client/chatClient";
+import { preloadImage, requestShot } from "@/lib/client/directorClient";
 import { createPacer } from "@/lib/client/pacer";
 import { clearHistory, loadHistory, newId, saveHistory, type StoredMessage } from "@/lib/client/chatStorage";
+import { getImage } from "@/lib/media/catalog";
+import { isSmallTalk } from "@/lib/media/smallTalk";
+import type { ImageMedia } from "@/lib/media/types";
+import { imageSrcSet, imageUrl, PANEL_SIZES, PANEL_WIDTHS } from "@/lib/media/urls";
 import { cleanModelText } from "@/lib/text";
 
 interface UiMessage extends StoredMessage {
   /** streaming: đang chạy chữ; error: bị lỗi giữa chừng (không lưu vào lịch sử). */
   status?: "streaming" | "error";
+}
+
+/** Ảnh dùng được của một lượt đáp (bỏ mã không còn trong kho và ảnh đã hỏng link). */
+function imageOf(m: UiMessage, broken: Set<string>): ImageMedia | null {
+  if (m.role !== "model" || m.status === "error" || !m.media) return null;
+  for (const ref of m.media) {
+    const img = ref.kind === "image" ? getImage(ref.id) : undefined;
+    if (img && !broken.has(img.id)) return img;
+  }
+  return null;
 }
 
 export function ChatScreen({ character }: { character: Character }) {
@@ -23,10 +38,15 @@ export function ChatScreen({ character }: { character: Character }) {
   const [error, setError] = useState<ChatErrorCode | null>(null);
   const [input, setInput] = useState("");
   const [confirmReset, setConfirmReset] = useState(false);
+  // Minh họa: lượt đáp đang được hiện ảnh (null: ảnh của lượt gần nhất có ảnh), đạo diễn đang tìm, ảnh hỏng link.
+  const [activeMediaMsgId, setActiveMediaMsgId] = useState<string | null>(null);
+  const [seeking, setSeeking] = useState(false);
+  const [brokenImages, setBrokenImages] = useState<Set<string>>(() => new Set());
 
   const busyRef = useRef(false);
   const runIdRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+  const directorAbortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -40,17 +60,25 @@ export function ChatScreen({ character }: { character: Character }) {
     setHydrated(true);
   }, [character.id]);
 
-  // Lưu những lượt đã hoàn tất (bỏ qua lượt đang chạy / bị lỗi).
+  // Lưu những lượt đã hoàn tất (bỏ qua lượt đang chạy / bị lỗi), kèm minh họa của từng lượt.
   useEffect(() => {
     if (!hydrated) return;
     saveHistory(
       character.id,
-      messages.filter((m) => !m.status).map(({ id, role, text }) => ({ id, role, text })),
+      messages
+        .filter((m) => !m.status)
+        .map(({ id, role, text, media }) => (media?.length ? { id, role, text, media } : { id, role, text })),
     );
   }, [messages, hydrated, character.id]);
 
-  // Hủy luồng khi rời trang.
-  useEffect(() => () => abortRef.current?.abort(), []);
+  // Hủy luồng chat và yêu cầu đạo diễn khi rời trang (kể cả đổi nhân vật).
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+      directorAbortRef.current?.abort();
+    },
+    [],
+  );
 
   // Tự cuộn xuống cuối nếu người dùng đang ở gần cuối.
   useLayoutEffect(() => {
@@ -84,30 +112,73 @@ export function ChatScreen({ character }: { character: Character }) {
       });
       ac.signal.addEventListener("abort", () => pacer.cancel(), { once: true });
 
+      // AI Đạo diễn chạy song song với lời thoại: không chờ, không chặn; lỗi thì chỉ là không có ảnh.
+      directorAbortRef.current?.abort();
+      const dac = new AbortController();
+      directorAbortRef.current = dac;
+      let chatFailed = false;
+      let markSpoken: () => void = () => {};
+      const spoken = new Promise<void>((resolve) => (markSpoken = resolve));
+      if (!isSmallTalk(history[history.length - 1]?.text ?? "")) setSeeking(true);
+      void (async () => {
+        const shot = await requestShot({
+          characterId: character.id,
+          messages: history.map(({ role, text }) => ({ role, text })),
+          shown: history.flatMap((m) => m.media?.map((r) => r.id) ?? []),
+          signal: dac.signal,
+        });
+        const img = shot.kind === "image" ? getImage(shot.mediaId) : undefined;
+        if (!img) return;
+        // Tải trước ảnh thẳng từ Wikimedia; tải lỗi thì bỏ, không hiện khung vỡ.
+        if (!(await preloadImage(imageUrl(img, 500), imageSrcSet(img, PANEL_WIDTHS), PANEL_SIZES, dac.signal))) return;
+        // Hiện sớm nhất khi nhân vật đã bắt đầu nói.
+        await spoken;
+        if (dac.signal.aborted || chatFailed) return;
+        setMessages((prev) => prev.map((m) => (m.id === replyId ? { ...m, media: [{ kind: "image", id: img.id }] } : m)));
+        if (runIdRef.current === runId) setActiveMediaMsgId(replyId);
+      })()
+        .catch(() => {})
+        .finally(() => {
+          if (directorAbortRef.current === dac) setSeeking(false);
+        });
+
       try {
         await streamChat({
           characterId: character.id,
           messages: history.map(({ role, text }) => ({ role, text })),
           signal: ac.signal,
-          onDelta: (delta) => pacer.push(delta),
+          onDelta: (delta) => {
+            pacer.push(delta);
+            markSpoken();
+          },
         });
         // Chờ nhả hết chữ rồi mới coi là trả lời xong (trong lúc này vẫn chặn gửi câu mới).
         await pacer.drain();
         if (runIdRef.current !== runId) return;
         setMessages((prev) =>
-          prev.map((m) => (m.id === replyId ? { id: m.id, role: m.role, text: cleanModelText(m.text) } : m)),
+          prev.map((m) =>
+            m.id === replyId
+              ? { id: m.id, role: m.role, text: cleanModelText(m.text), ...(m.media ? { media: m.media } : {}) }
+              : m,
+          ),
         );
       } catch (err) {
+        // Lượt chat lỗi hoặc bị hủy: bỏ luôn minh họa của lượt này.
+        chatFailed = true;
+        dac.abort();
         if (runIdRef.current !== runId) return;
         const code = err instanceof ClientChatError ? err.code : "INTERRUPTED";
         if (code === "ABORTED") return;
         pacer.flush(); // hiện nốt phần chữ đã nhận trước khi báo lỗi
         // Giữ phần chữ đã nhận (đánh dấu lỗi); nếu chưa có chữ nào thì bỏ bong bóng trống.
         setMessages((prev) =>
-          prev.flatMap((m) => (m.id !== replyId ? [m] : m.text ? [{ ...m, status: "error" as const }] : [])),
+          prev.flatMap((m) =>
+            m.id !== replyId ? [m] : m.text ? [{ ...m, status: "error" as const, media: undefined }] : [],
+          ),
         );
         setError(code);
       } finally {
+        markSpoken();
         if (runIdRef.current === runId) {
           busyRef.current = false;
           abortRef.current = null;
@@ -150,6 +221,10 @@ export function ChatScreen({ character }: { character: Character }) {
     runIdRef.current++;
     abortRef.current?.abort();
     abortRef.current = null;
+    directorAbortRef.current?.abort();
+    directorAbortRef.current = null;
+    setSeeking(false);
+    setActiveMediaMsgId(null);
     busyRef.current = false;
     clearHistory(character.id);
     setMessages([]);
@@ -169,6 +244,18 @@ export function ChatScreen({ character }: { character: Character }) {
   };
 
   const canSend = hydrated && !busy && input.trim().length > 0;
+
+  // Vùng minh họa hiện ảnh của lượt người dùng vừa bấm "Có tư liệu", nếu không thì ảnh của lượt gần nhất có ảnh.
+  const withImage = messages.filter((m) => imageOf(m, brokenImages));
+  const shownMsg =
+    withImage.find((m) => m.id === activeMediaMsgId) ?? (withImage.length > 0 ? withImage[withImage.length - 1] : null);
+  const panelImage = shownMsg ? imageOf(shownMsg, brokenImages) : null;
+  const latestReply = [...messages].reverse().find((m) => m.role === "model" && m.status !== "error");
+  const panelEarlier = !!shownMsg && !!latestReply && shownMsg.id !== latestReply.id;
+  const markBroken = useCallback(
+    (id: string) => setBrokenImages((prev) => (prev.has(id) ? prev : new Set(prev).add(id))),
+    [],
+  );
 
   return (
     <div className="flex h-dvh flex-col">
@@ -226,7 +313,7 @@ export function ChatScreen({ character }: { character: Character }) {
 
       {/* Thân: cột chat + vùng minh họa */}
       <div className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col gap-0 md:flex-row md:gap-6 md:px-6 md:py-4">
-        <IllustrationPanel />
+        <IllustrationPanel image={panelImage} seeking={seeking} earlier={panelEarlier} onBroken={markBroken} />
 
         <section aria-label="Cuộc trò chuyện" className="flex min-h-0 min-w-0 flex-1 flex-col md:order-first">
           <div
@@ -251,6 +338,9 @@ export function ChatScreen({ character }: { character: Character }) {
                     text={m.text}
                     streaming={m.status === "streaming"}
                     broken={m.status === "error"}
+                    hasMedia={!!imageOf(m, brokenImages)}
+                    mediaActive={shownMsg?.id === m.id}
+                    onShowMedia={() => setActiveMediaMsgId(m.id)}
                   />
                 ),
               )}
@@ -329,12 +419,19 @@ function ModelBubble({
   streaming = false,
   broken = false,
   className = "",
+  hasMedia = false,
+  mediaActive = false,
+  onShowMedia,
 }: {
   name: string;
   text: string;
   streaming?: boolean;
   broken?: boolean;
   className?: string;
+  /** Lượt này có ảnh minh họa: hiện dấu "Có tư liệu", bấm vào thì vùng minh họa hiện lại ảnh của lượt. */
+  hasMedia?: boolean;
+  mediaActive?: boolean;
+  onShowMedia?: () => void;
 }) {
   const shown = cleanModelText(text);
   return (
@@ -353,6 +450,22 @@ function ModelBubble({
         )}
         {broken && <p className="mt-2 text-xs text-cinnabar italic">(Lời đáp bị ngắt giữa chừng)</p>}
       </div>
+      {hasMedia && (
+        <button
+          type="button"
+          onClick={onShowMedia}
+          aria-pressed={mediaActive}
+          aria-label="Có tư liệu: hiện ảnh của lượt này ở vùng minh họa"
+          className={`mt-1.5 inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-xs transition-colors ${
+            mediaActive
+              ? "border-cinnabar bg-cinnabar text-scroll"
+              : "border-cinnabar/40 text-cinnabar hover:bg-cinnabar/5"
+          }`}
+        >
+          <span aria-hidden className={`inline-block h-2 w-2 rotate-45 ${mediaActive ? "bg-scroll" : "bg-cinnabar"}`} />
+          Có tư liệu
+        </button>
+      )}
     </article>
   );
 }

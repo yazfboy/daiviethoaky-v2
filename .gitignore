@@ -23,3 +23,6 @@ coverage/
 
 # ket qua chay thu co loc cua bo kiem thu (ket qua chinh eval/ket-qua.md thi commit)
 eval/ket-qua-loc.md
+
+# ket qua chay thu co loc cua bo kiem thu dao dien
+eval/dao-dien/ket-qua-loc.md

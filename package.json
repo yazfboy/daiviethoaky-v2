@@ -12,7 +12,9 @@
     "start": "next start",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "eval": "vitest run --config vitest.eval.config.mts"
+    "eval": "vitest run --config vitest.eval.config.mts",
+    "eval:director": "vitest run --config vitest.director.config.mts",
+    "do:chu-dau": "node scripts/do-chu-dau.mjs"
   },
   "dependencies": {
     "@google/genai": "3.6.1",
